@@ -6,6 +6,7 @@ This code was written for the “Aliosensu STM32 JBC Controller v1.0”
 It features an SMT32F103C8T6 microcontroller, and uses the STM32duino core available here: https://github.com/stm32duino
 
 Libraries used:
+
 Display 	: https://github.com/olikraus/u8g2 (version=2.20.13) more recent versions untested
 EEPROM	: https://github.com/stm32duino/Arduino_Core_STM32/tree/master/libraries/EEPROM 
 Wire		: https://github.com/stm32duino/Arduino_Core_STM32/tree/master/libraries/Wire 
