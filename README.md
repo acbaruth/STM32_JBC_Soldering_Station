@@ -1,4 +1,4 @@
-STM32 based soldering station for JBC cartridge types
+﻿STM32 based soldering station for JBC cartridge types
 
 Introduction:
 
@@ -7,9 +7,10 @@ It features an SMT32F103C8T6 microcontroller, and uses the STM32duino core avail
 
 Libraries used:
 
-Display 	: https://github.com/olikraus/u8g2 (version=2.20.13) more recent versions untested
-EEPROM	: https://github.com/stm32duino/Arduino_Core_STM32/tree/master/libraries/EEPROM 
-Wire		: https://github.com/stm32duino/Arduino_Core_STM32/tree/master/libraries/Wire 
+Libraries used:
+    • Display 	: https://github.com/olikraus/u8g2 (version=2.20.13) more recent versions untested
+    • EEPROM	: https://github.com/stm32duino/Arduino_Core_STM32/tree/master/libraries/EEPROM 
+    • Wire		: https://github.com/stm32duino/Arduino_Core_STM32/tree/master/libraries/Wire 
 
 
 The design requires isolated power for the digital and heater sections. This is most easily accomplished with separate transformer windings, but an isolated SMPS, or separate transformers can also be used.
