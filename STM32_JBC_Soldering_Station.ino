@@ -12,9 +12,13 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 #define DOWN_BTN_PIN PA10     //momentary switch
 #define INTERRUPT_PIN PA2
 #define R5_RESISTANCE 49700.0  //single supply board gain
-//#define R5_RESISTANCE 110000.0  //dual supply board gain
 #define R6_RESISTANCE 249.0
 #define VCC 3.3
+
+//Power Computation
+int power = 0;
+int counter = 0;
+int halfCycleOn = 0;
 
 int pwrPot = PA0;
 int encoderPinA = PB13;   // right
@@ -96,22 +100,31 @@ float runningAverageDisplay(float D) {  //Rounding for display temp
 
 void zeroCrossingInterrupt() {  //Heater ISR
   mainsCycles++;
+  counter++;
 
   if (mainsCycles >= 0) { // At 0 turn off heater
-    //digitalWrite(HEAT_PIN, LOW);//use arduino function (slower)
-    GPIOB->ODR &= ~(1 << 9);      //use direct port manipulation for ISR (stm32 PB9 LOW)
+    digitalWrite(HEAT_PIN, LOW);//use arduino function (slower)
+    //GPIOB->ODR &= ~(1 << 9);      //use direct port manipulation for ISR (stm32 PB9 LOW)
   }
   if (mainsCycles > 6) { // Default 6, make sure op-amp voltage is stable before reading thermocouple(50ms)
     tipTempIs = round(runningAverage(((analogRead(TC_PIN) * (VCC / 4095.0)) / (1 + R5_RESISTANCE / R6_RESISTANCE)) * tempAdj + getAmbientTemperature()));
 
     if (tipTempIs < tipTempSet) { // If heat is missing turn on heater
-      // digitalWrite(HEAT_PIN, HIGH);  //use arduino function (slower)
-      GPIOB->ODR |= (1 << 9);       //use direct port manipulation for ISR (stm32 PB9 HIGH)
+      digitalWrite(HEAT_PIN, HIGH);  //use arduino function (slower)
+      //GPIOB->ODR |= (1 << 9);       //use direct port manipulation for ISR (stm32 PB9 HIGH)
       mainsCycles = round(sqrt(tipTempSet - tipTempIs) * pwrAdj);  //use pot to adjust multiplier, if set to 0 will still wait until next main cycle
     }
     else { // If no heat is missing
       mainsCycles = -4;  //default -4
     }
+  }
+  if (digitalRead(HEAT_PIN) == HIGH) {
+    halfCycleOn++;
+  }
+  if (counter >= 60) {  //take a sample every half second
+    counter = 0;
+    power = ((halfCycleOn / 45.0) * 100.0); //give percentage of power being used, because of op-amp measurment time, about 75% of power is available
+    halfCycleOn = 0;
   }
 }
 
@@ -279,11 +292,14 @@ void setup()
   u8g2.setFont(u8g2_font_helvR12_tf);
   u8g2.print("°C");
   u8g2.setFont(u8g2_font_courB12_tr); // choose a suitable h font
-  u8g2.setCursor(0, 42);       // set write position
+  u8g2.setCursor(0, 35);       // set write position
   u8g2.print("Tip:");      // use extra spaces here
   u8g2.setFont(u8g2_font_helvR12_tf);
   u8g2.setCursor(101, 42);
   u8g2.print("°C");
+  u8g2.setFont(u8g2_font_helvR12_tf);
+  u8g2.setCursor(25, 57);
+  u8g2.print("%");
   u8g2.sendBuffer();
 
   pinMode(encoderPinA, INPUT);
@@ -343,9 +359,17 @@ void loop() {
     rotaryPush();
     heaterLed();
   }
-  /*
-    if (millis() - uplastmillis >= 500) { // debuging stuff
-      uplastmillis = millis();
 
-  */
+  if (millis() - uplastmillis >= 500) { // periodic stuffs
+    uplastmillis = millis();
+    //power
+    u8g2.setFontMode(0);
+    u8g2.setFont(u8g2_font_t0_22b_mn);
+    u8g2.setCursor(0, 57);
+    u8g2.print(power);
+    if (power < 10) {  //don't exceed three digit, or percent will be overwritten
+      u8g2.print(" ");
+    }
+    u8g2.sendBuffer();
+  }
 }
