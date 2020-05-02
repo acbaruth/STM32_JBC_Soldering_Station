@@ -34,7 +34,6 @@ int tipTempIsDisplay = 0;   // Separate Display variables
 int tipTempIsDisplayRound = 0;
 int tipTempSet = 330;       //default tip temperature setting
 int tipTempSetDisplay = 0;  // for asynchronous updates
-int tipTempIsDisplayLastRound = 0;
 //const int thermistorB = 4250; // B-constant for muRata NXRT15WF104FA1B030 thermistor
 bool heat = false;
 int mainsCycles = 0;  //This cannot be unsigned
@@ -42,7 +41,6 @@ unsigned long buttonMillis = 0; // When last button press was registered
 unsigned long lastmillis = 0;
 unsigned long calLastMillis = 0;
 unsigned long uplastmillis = 0;
-unsigned long displayLastmillis = 0;
 int reading;           // the current reading from the input pin
 int previousHome = LOW;    // the previous reading from the input pin
 long time = 0;         // the last time the output pin was toggled
@@ -110,10 +108,7 @@ void zeroCrossingInterrupt() {  //Heater ISR
   }
   if (mainsCycles > 6) { // Default 6, make sure op-amp voltage is stable before reading thermocouple(50ms)
     tipTempIs = round(runningAverage(((analogRead(TC_PIN) * (VCC / 4095.0)) / (1 + R5_RESISTANCE / R6_RESISTANCE)) * tempAdj + getAmbientTemperature()));
-    //Calculate seperate rounding for the display now
-    tipTempIsDisplay = tipTempIs;                                         
-    tipTempIsDisplayRound = round(runningAverageDisplay(tipTempIsDisplay));
-    
+
     if (tipTempIs < tipTempSet) { // If heat is missing turn on heater
       digitalWrite(HEAT_PIN, HIGH);  //use arduino function (slower)
       //GPIOB->ODR |= (1 << 9);       //use direct port manipulation for ISR (stm32 PB9 HIGH)
@@ -332,9 +327,9 @@ void loop() {
 
   rotating = true;  // reset the debouncer for the rotary encoder
 
-  if ((abs(tipTempIsDisplayRound - tipTempIsDisplayLastRound) >= 1) && (millis() - displayLastmillis >= 500)) {  //update the display at most every half second
-    displayLastmillis = millis();
-    tipTempIsDisplayLastRound = tipTempIsDisplayRound;
+  if (abs(tipTempIs - tipTempIsDisplay) >= 1) { // Is it time to update the display?
+    tipTempIsDisplay = tipTempIs;
+    tipTempIsDisplayRound = round(runningAverageDisplay(tipTempIsDisplay));
     u8g2.setFontMode(0);
     u8g2.setFont(u8g2_font_inb24_mn);
     u8g2.setCursor(40, 50);
