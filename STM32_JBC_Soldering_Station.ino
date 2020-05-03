@@ -1,8 +1,7 @@
 #include <EEPROM.h>
 #include <Wire.h>
-#include <U8g2lib.h>
-
-U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
+#include <TFT_eSPI.h> // Graphics and font library for ILI9341 driver chip
+#include <SPI.h>
 
 #define HEAT_PIN PB9
 #define TC_PIN PA3
@@ -11,20 +10,23 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 #define UP_BTN_PIN PA9       //momentary switch
 #define DOWN_BTN_PIN PA10     //momentary switch
 #define INTERRUPT_PIN PA2
+//#define INTERRUPT_PIN PA10
 #define R5_RESISTANCE 49700.0  //single supply board gain
 #define R6_RESISTANCE 249.0
 #define VCC 3.3
+#define bLED PB6
+TFT_eSPI tft = TFT_eSPI();  // Invoke library, pins defined in User_Setup.h
 
 //Power Computation
 int power = 0;
 int counter = 0;
 int halfCycleOn = 0;
-
+int oldPower;
+int tipTempIsDisplayLastRound = 0;
 int pwrPot = PA0;
 int encoderPinA = PB13;   // right
 int encoderPinB = PB14;   // left
 static boolean rotating = false;// debounce management
-// interrupt service routine vars
 boolean A_set = false;
 boolean B_set = false;
 int button = PB15;
@@ -34,7 +36,6 @@ int tipTempIsDisplay = 0;   // Separate Display variables
 int tipTempIsDisplayRound = 0;
 int tipTempSet = 330;       //default tip temperature setting
 int tipTempSetDisplay = 0;  // for asynchronous updates
-int tipTempIsDisplayLastRound = 0;
 //const int thermistorB = 4250; // B-constant for muRata NXRT15WF104FA1B030 thermistor
 bool heat = false;
 int mainsCycles = 0;  //This cannot be unsigned
@@ -71,7 +72,7 @@ float getAmbientTemperature() {
 }
 
 float runningAverage(float M) {  //Rounding for op-amp
-#define LENGTH_M 20
+#define LENGTH_M 10              //This can be increased/decreased depending on op-amp stability. Default 20
   static int values[LENGTH_M];
   static byte index = 0;
   static float sum = 0;
@@ -113,14 +114,14 @@ void zeroCrossingInterrupt() {  //Heater ISR
     //Calculate seperate rounding for the display now
     tipTempIsDisplay = tipTempIs;                                         
     tipTempIsDisplayRound = round(runningAverageDisplay(tipTempIsDisplay));
-    
+
     if (tipTempIs < tipTempSet) { // If heat is missing turn on heater
       digitalWrite(HEAT_PIN, HIGH);  //use arduino function (slower)
       //GPIOB->ODR |= (1 << 9);       //use direct port manipulation for ISR (stm32 PB9 HIGH)
       mainsCycles = round(sqrt(tipTempSet - tipTempIs) * pwrAdj);  //use pot to adjust multiplier, if set to 0 will still wait until next main cycle
     }
     else { // If no heat is missing
-      mainsCycles = -4;  //default -4
+      mainsCycles = -4;  //default -4  This could be removed
     }
   }
   if (digitalRead(HEAT_PIN) == HIGH) {
@@ -144,7 +145,7 @@ void defaultTipSet() {
   millis_held = (millis() - firstTime);
   secs_held = millis_held / 1000;
 
-  if (millis_held > 50) {  //debouncing
+  if (millis_held > 100) {  //debouncing
     if (current == HIGH && previousSet == LOW) {       // check if the button was released since last checked
       if (secs_held >= 3  && setScreen == false) {     // Button held for 1-3 seconds
         (setScreen = true);
@@ -154,7 +155,7 @@ void defaultTipSet() {
   if (setScreen == true && secs_held < 1 )  {
     EEPROM.put(tipAddress, tipTempSet);
     firstTime = millis();
-    if (millis() - lastmillis >= 1000) { //serial debugging stuff
+    if (millis() - lastmillis >= 1000) { 
       lastmillis = millis();
       (calScreen = true);
       (setScreen = false);
@@ -164,29 +165,18 @@ void defaultTipSet() {
     EEPROM.put(calAddress, tempAdj);
     if (millis() - calLastMillis >= 1000) { // update the tip display every secondfirstTime = millis();
       calLastMillis = millis();
-      u8g2.setFontMode(0);        // write solid glyphs
-      u8g2.setFont(u8g2_font_7x14B_mr); // choose a suitable h font
-      u8g2.setCursor(0, 52);       // set write position
-      u8g2.print(" ");      // use extra spaces here
-      u8g2.sendBuffer();
+      tft.drawString("       ", 3, 145, 4);  //make sure the cal is removed from screen
       (calScreen = false);
     }
   }
   if (setScreen == true) {
     if (millis() - lastmillis >= 1000) { // update the tip display every second
       lastmillis = millis();
-      u8g2.setFontMode(0);        // write solid glyphs
-      u8g2.setFont(u8g2_font_7x14B_mr); // choose a suitable h font
-      u8g2.setCursor(10, 26);       // set write position
-      u8g2.print("S");      // use extra spaces here
-      u8g2.sendBuffer();
+      tft.setTextColor(TFT_BLUE, TFT_BLACK);
+      tft.drawString("tip", 3, 5, 4);
     }
-    else if (millis() - lastmillis >= 250) {
-      u8g2.setFontMode(0);        // write solid glyphs
-      u8g2.setFont(u8g2_font_7x14B_mr); // choose a suitable h font
-      u8g2.setCursor(10, 26);       // set write position
-      u8g2.print(" ");      // use extra spaces here
-      u8g2.sendBuffer();
+    else if (millis() - lastmillis >= 250) {     
+      tft.drawString("       ", 3, 5, 4);
     }
   }
   previousSet = current;
@@ -194,18 +184,11 @@ void defaultTipSet() {
   if (calScreen == true) {
     if (millis() - lastmillis >= 1000) { // update the tip display every second
       lastmillis = millis();
-      u8g2.setFontMode(0);        // write solid glyphs
-      u8g2.setFont(u8g2_font_7x14B_mr); // choose a suitable h font
-      u8g2.setCursor(0, 54);       // set write position
-      u8g2.print("C");      // use extra spaces here
-      u8g2.sendBuffer();
+      tft.setTextColor(TFT_BLUE, TFT_BLACK);
+      tft.drawString("cal", 3, 145, 4);
     }
     else if (millis() - lastmillis >= 250) {
-      u8g2.setFontMode(0);        // write solid glyphs
-      u8g2.setFont(u8g2_font_7x14B_mr); // choose a suitable h font
-      u8g2.setCursor(0, 54);       // set write position
-      u8g2.print(" ");      // use extra spaces here
-      u8g2.sendBuffer();
+      tft.drawString("       ", 3, 145, 4);
       tempAdj = constrain(tempAdj, 20000, 80000);  //does this work here?
     }
   }
@@ -286,26 +269,16 @@ void heaterLed() {                                                //LED or displ
 
 void setup()
 {
-  u8g2.begin();
-  u8g2.enableUTF8Print();
-  u8g2.clearBuffer();
-  u8g2.setFontMode(0);        // write solid glyphs
-  u8g2.setFont(u8g2_font_courB12_tr); // choose a suitable h font
-  u8g2.setCursor(10, 12);       // set write position
-  u8g2.print("Set:");      // use extra spaces here
-  u8g2.setCursor(85, 13);       // set write position
-  u8g2.setFont(u8g2_font_helvR12_tf);
-  u8g2.print("°C");
-  u8g2.setFont(u8g2_font_courB12_tr); // choose a suitable h font
-  u8g2.setCursor(0, 35);       // set write position
-  u8g2.print("Tip:");      // use extra spaces here
-  u8g2.setFont(u8g2_font_helvR12_tf);
-  u8g2.setCursor(101, 42);
-  u8g2.print("°C");
-  u8g2.setFont(u8g2_font_helvR12_tf);
-  u8g2.setCursor(25, 57);
-  u8g2.print("%");
-  u8g2.sendBuffer();
+  pinMode(bLED, OUTPUT);    //using GPIO for backlighting the display for the time being
+  digitalWrite(bLED, HIGH); //doesn't seem to be much voltage drop
+  tft.init();
+  tft.setRotation(1);
+  tft.setTextSize(2);
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_BLUE, TFT_BLACK);
+  tft.drawString("Set:         `c", 70, 5, 4);
+  tft.drawString("Tip:                   `c", 0, 100, 4);
+  tft.drawString("Pwr: ", 70, 190, 4);
 
   pinMode(encoderPinA, INPUT);
   pinMode(encoderPinB, INPUT);
@@ -325,7 +298,7 @@ void setup()
   analogReadResolution(12);  //Run the ADC at its full resolution
   tipTempSet = EEPROM.get(tipAddress, tipTempSet);
   tempAdj = EEPROM.get(calAddress, tempAdj);
-  //  Serial.begin(9600);
+  //Serial.begin(9600);
 }
 
 void loop() {
@@ -335,21 +308,20 @@ void loop() {
   if ((abs(tipTempIsDisplayRound - tipTempIsDisplayLastRound) >= 1) && (millis() - displayLastmillis >= 500)) {  //update the display at most every half second
     displayLastmillis = millis();
     tipTempIsDisplayLastRound = tipTempIsDisplayRound;
-    u8g2.setFontMode(0);
-    u8g2.setFont(u8g2_font_inb24_mn);
-    u8g2.setCursor(40, 50);
-    u8g2.print(tipTempIsDisplayRound);
-    u8g2.sendBuffer();
+    tft.setTextSize(2);
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.drawString("        ", 85, 75, 7);
+    tft.drawNumber(tipTempIsDisplayRound, 85, 75, 7);
+    //Serial.println(tipTempIsDisplayRound);
     pwrAdj = (analogRead(pwrPot) / -2400.0) ; //this will now only read when the temp is changing
   }
+
   if (abs(tipTempSet - tipTempSetDisplay) >= 1) // Is it time to update the display?
   {
     tipTempSetDisplay = tipTempSet;
-    u8g2.setFontMode(0);
-    u8g2.setFont(u8g2_font_t0_22b_mn);
-    u8g2.setCursor(50, 14);
-    u8g2.print(tipTempSetDisplay);
-    u8g2.sendBuffer();
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.drawNumber(tipTempSetDisplay, 160, 7, 4);
+    //
     tipTempSet = constrain(tipTempSet, 100, 400);
   }
 
@@ -365,16 +337,22 @@ void loop() {
     heaterLed();
   }
 
-  if (millis() - uplastmillis >= 500) { // periodic stuffs
+  if (millis() - uplastmillis >= 300) { // Display power update every half second
     uplastmillis = millis();
-    //power
-    u8g2.setFontMode(0);
-    u8g2.setFont(u8g2_font_t0_22b_mn);
-    u8g2.setCursor(0, 57);
-    u8g2.print(power);
-    if (power < 10) {  //don't exceed three digit, or percent will be overwritten
-      u8g2.print(" ");
+    if (power != oldPower) {
+      oldPower = power;
+      if (power >= 100) {
+        power = 99;
+      }
+      tft.setTextColor(TFT_GREEN, TFT_BLACK);
+      tft.drawString("                       ", 165, 190, 4);//overwrite to get rid of old numbers
+      tft.drawNumber(power, 175, 190, 4);
+      if (power > 9) {
+        tft.drawString("%", 235, 190, 4);//overwrite to get rid of old numbers
+      }
+      else {
+        tft.drawString("%", 205, 190, 4);//overwrite to get rid of old numbers
+      }
     }
-    u8g2.sendBuffer();
   }
 }
