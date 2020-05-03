@@ -7,7 +7,6 @@ It features an SMT32F103C8T6 microcontroller, and uses the STM32duino core avail
 
 Libraries used:
 
-Libraries used:
     • Display 	: https://github.com/Bodmer/TFT_eSPI
     • EEPROM	: https://github.com/stm32duino/Arduino_Core_STM32/tree/master/libraries/EEPROM 
     • Wire		: https://github.com/stm32duino/Arduino_Core_STM32/tree/master/libraries/Wire 
